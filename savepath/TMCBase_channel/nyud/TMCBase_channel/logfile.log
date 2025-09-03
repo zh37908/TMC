@@ -1,0 +1,67 @@
+INFO - 08/08/25 23:11:33 - 0:00:00 - FINE_SIZE: 224
+                                     LOAD_SIZE: 256
+                                     backbone: resnet18
+                                     batch_sz: 32
+                                     channel_hidden: [512]
+                                     channel_size: 32
+                                     channel_snr: 10
+                                     data_path: /home/hzhaobi/Multired/nyud2
+                                     dropout: 0.1
+                                     freeze_encoder: 0
+                                     gradient_accumulation_steps: 3
+                                     hidden: []
+                                     hidden_sz: 768
+                                     img_embed_pool_type: avg
+                                     img_hidden_sz: 512
+                                     include_bn: True
+                                     lr: 0.0001
+                                     lr_factor: 0.3
+                                     lr_patience: 10
+                                     max_epochs: 500
+                                     n_classes: 10
+                                     n_workers: 12
+                                     name: TMCBase_channel
+                                     num_image_embeds: 1
+                                     patience: 20
+                                     pretrain: DeCUR
+                                     projector: 8192-8192-8192
+                                     rda: False
+                                     resume: False
+                                     savedir: ./savepath/TMCBase_channel/nyud/TMCBase_channel
+                                     seed: 1
+INFO - 08/08/25 23:11:39 - 0:00:06 - Train Loss: 2.4519
+INFO - 08/08/25 23:11:39 - 0:00:06 - val: Loss: 7.12648 | depth_acc: 0.10092, rgb_acc: 0.10245
+INFO - 08/08/25 23:11:39 - 0:00:06 - val: Loss: 7.12648 | depth_acc: 0.10092, rgb_acc: 0.10245, depth rgb acc: 0.11927
+INFO - 08/08/25 23:11:43 - 0:00:10 - Train Loss: 2.3854
+INFO - 08/08/25 23:11:43 - 0:00:10 - val: Loss: 6.94240 | depth_acc: 0.12691, rgb_acc: 0.12691
+INFO - 08/08/25 23:11:43 - 0:00:10 - val: Loss: 6.94240 | depth_acc: 0.12691, rgb_acc: 0.12691, depth rgb acc: 0.13150
+INFO - 08/08/25 23:11:48 - 0:00:14 - Train Loss: 2.3428
+INFO - 08/08/25 23:11:48 - 0:00:14 - val: Loss: 6.82829 | depth_acc: 0.15596, rgb_acc: 0.15596
+INFO - 08/08/25 23:11:48 - 0:00:14 - val: Loss: 6.82829 | depth_acc: 0.15596, rgb_acc: 0.15596, depth rgb acc: 0.16055
+INFO - 08/08/25 23:11:52 - 0:00:19 - Train Loss: 2.3067
+INFO - 08/08/25 23:11:52 - 0:00:19 - val: Loss: 6.71162 | depth_acc: 0.22324, rgb_acc: 0.17890
+INFO - 08/08/25 23:11:52 - 0:00:19 - val: Loss: 6.71162 | depth_acc: 0.22324, rgb_acc: 0.17890, depth rgb acc: 0.15443
+INFO - 08/08/25 23:11:57 - 0:00:24 - Train Loss: 2.2856
+INFO - 08/08/25 23:11:57 - 0:00:24 - val: Loss: 6.64139 | depth_acc: 0.23242, rgb_acc: 0.20948
+INFO - 08/08/25 23:11:57 - 0:00:24 - val: Loss: 6.64139 | depth_acc: 0.23242, rgb_acc: 0.20948, depth rgb acc: 0.15902
+INFO - 08/08/25 23:12:01 - 0:00:28 - Train Loss: 2.2603
+INFO - 08/08/25 23:12:01 - 0:00:28 - val: Loss: 6.59860 | depth_acc: 0.24312, rgb_acc: 0.20489
+INFO - 08/08/25 23:12:01 - 0:00:28 - val: Loss: 6.59860 | depth_acc: 0.24312, rgb_acc: 0.20489, depth rgb acc: 0.17737
+INFO - 08/08/25 23:12:06 - 0:00:33 - Train Loss: 2.2390
+INFO - 08/08/25 23:12:06 - 0:00:33 - val: Loss: 6.51918 | depth_acc: 0.28135, rgb_acc: 0.22324
+INFO - 08/08/25 23:12:06 - 0:00:33 - val: Loss: 6.51918 | depth_acc: 0.28135, rgb_acc: 0.22324, depth rgb acc: 0.20031
+INFO - 08/08/25 23:12:10 - 0:00:37 - Train Loss: 2.2283
+INFO - 08/08/25 23:12:10 - 0:00:37 - val: Loss: 6.49986 | depth_acc: 0.29358, rgb_acc: 0.24159
+INFO - 08/08/25 23:12:10 - 0:00:37 - val: Loss: 6.49986 | depth_acc: 0.29358, rgb_acc: 0.24159, depth rgb acc: 0.20336
+INFO - 08/08/25 23:12:15 - 0:00:42 - Train Loss: 2.2210
+INFO - 08/08/25 23:12:15 - 0:00:42 - val: Loss: 6.46763 | depth_acc: 0.30581, rgb_acc: 0.20795
+INFO - 08/08/25 23:12:15 - 0:00:42 - val: Loss: 6.46763 | depth_acc: 0.30581, rgb_acc: 0.20795, depth rgb acc: 0.19113
+INFO - 08/08/25 23:12:19 - 0:00:46 - Train Loss: 2.2083
+INFO - 08/08/25 23:12:19 - 0:00:46 - val: Loss: 6.42956 | depth_acc: 0.29664, rgb_acc: 0.23242
+INFO - 08/08/25 23:12:19 - 0:00:46 - val: Loss: 6.42956 | depth_acc: 0.29664, rgb_acc: 0.23242, depth rgb acc: 0.23394
+INFO - 08/08/25 23:12:24 - 0:00:51 - Train Loss: 2.1900
+INFO - 08/08/25 23:12:24 - 0:00:51 - val: Loss: 6.40055 | depth_acc: 0.30275, rgb_acc: 0.23853
+INFO - 08/08/25 23:12:24 - 0:00:51 - val: Loss: 6.40055 | depth_acc: 0.30275, rgb_acc: 0.23853, depth rgb acc: 0.22324
+INFO - 08/08/25 23:12:28 - 0:00:55 - Train Loss: 2.1777
+INFO - 08/08/25 23:12:28 - 0:00:55 - val: Loss: 6.39978 | depth_acc: 0.30734, rgb_acc: 0.24159
+INFO - 08/08/25 23:12:28 - 0:00:55 - val: Loss: 6.39978 | depth_acc: 0.30734, rgb_acc: 0.24159, depth rgb acc: 0.22477
