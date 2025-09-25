@@ -10,6 +10,16 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import re
 
+"""
+将脚本移动到子目录后，增加动态 sys.path 注入，确保可以从
+`TMC/ETMC_TPAMI` 目录正确导入 `models/` 与 `data/` 模块。
+"""
+import sys
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_PKG_ROOT = os.path.abspath(os.path.join(_THIS_DIR, ".."))
+if _PKG_ROOT not in sys.path:
+    sys.path.insert(0, _PKG_ROOT)
+
 from data.aligned_conc_dataset import AlignedConcDataset
 from models.TMC import TMC_channel, TMC_base_channel
 from utils.utils import set_seed

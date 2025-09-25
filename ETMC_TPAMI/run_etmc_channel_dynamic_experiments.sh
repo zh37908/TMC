@@ -28,10 +28,11 @@ echo "Pretrain: $PRETRAIN"
 echo ""
 
 for dataset in "${DATASETS[@]}"; do
-  for run in 1; do
-    NAME="train_ETMC_channel_${dataset}_${PRETRAIN}_${RANGE_TAG}_dynamic_run${run}"
-    BASE_SAVEDIR="$ROOT/savepath/ETMC_channel_dynamic/${dataset}"
-    EXP_SAVEDIR="$BASE_SAVEDIR/${PRETRAIN}/${RANGE_TAG}/dynamic/run${run}"
+  for pretrain in "${PRETRAINS[@]}"; do
+    for run in 1; do
+      NAME="train_ETMC_channel_${dataset}_${pretrain}_${RANGE_TAG}_dynamic_run${run}"
+      BASE_SAVEDIR="$ROOT/savepath/ETMC_channel_dynamic/${dataset}"
+      EXP_SAVEDIR="$BASE_SAVEDIR/${pretrain}/${RANGE_TAG}/dynamic/run${run}"
     
     # Select trainer and data path based on dataset
     if [[ "$dataset" == "nyud" ]]; then
