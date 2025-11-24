@@ -1,31 +1,14 @@
 import argparse
 from tqdm import tqdm
-import torch
-import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import accuracy_score
-from models.TMC import TMC_channel_snr, TMC_channel, ce_loss
-from models.pretrain_models import DeCUR, SimCLR, BarlowTwins
+from models.TMC import TMC, ce_loss
 import torchvision.transforms as transforms
 from data.aligned_conc_dataset import AlignedConcDataset
 from utils.utils import *
 from utils.logger import create_logger
 import os
 from torch.utils.data import DataLoader
-
-"""
-TMC（Transferable Modal Consensus）与常规 softmax-cross-entropy 方法的核心区别：
-1. 证据输出而非概率：
-   TMC 网络最后一层不用 softmax，而是对 ReLU 后的 **evidence** 加 1 得到 Dirichlet 分布参数 α（见 models/TMC.py 中 `F.softplus(out)+1`）。α 越大表示模型越确信，α 越小表示不确定。
-2. 多模态 DS 融合：
-   分别对深度和 RGB 两路产生 α，然后利用 Dempster-Shafer 证据理论 `DS_Combin_two()` 将两路证据自适应融合，得到第三路 `depth_rgb_alpha`，从而显式建模模态一致性/冲突。
-3. 特殊损失函数 `ce_loss()`：
-   损失由两部分组成——(1) 证据驱动的交叉熵项 A；(2) 带有 KL 正则的惩罚项 B，随训练步数逐渐加权 (annealing)。该设计鼓励网络输出高置信度的正确类别，同时对不确定样本保留合适的分布。
-4. 三路协同优化：
-   训练时同时对 depth、rgb、fusion 三个 α 计算损失并反向传播（59-61 行），实现模态互补与一致性学习。
-5. 不确定性可解释：
-   由于输出的是 Dirichlet 参数，可直接计算期望、方差信息，用于下游不确定性估计，而普通 softmax 只给 point-estimate。
-"""
 
 
 def get_args(parser):
@@ -36,13 +19,11 @@ def get_args(parser):
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=3)
     parser.add_argument("--hidden", nargs="*", type=int, default=[])
-    parser.add_argument("--channel_hidden", nargs="*", type=int, default=[512])
-    parser.add_argument("--channel_size", type=int, default=256)
     parser.add_argument("--hidden_sz", type=int, default=768)
     parser.add_argument("--img_embed_pool_type", type=str, default="avg", choices=["max", "avg"])
     parser.add_argument("--img_hidden_sz", type=int, default=512)
     parser.add_argument("--include_bn", type=int, default=True)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--lr_factor", type=float, default=0.3)
     parser.add_argument("--lr_patience", type=int, default=10)
     parser.add_argument("--max_epochs", type=int, default=500)
@@ -50,31 +31,14 @@ def get_args(parser):
     parser.add_argument("--name", type=str, default="ReleasedVersion")
     parser.add_argument("--num_image_embeds", type=int, default=1)
     parser.add_argument("--patience", type=int, default=20)
-    parser.add_argument("--savedir", type=str, default="./savepath/TMC/nyud/")
+    parser.add_argument("--savedir", type=str, default="./savepath/TMC/nyud/original/Adam/pretrain_TMC/")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--n_classes", type=int, default=10)
     parser.add_argument("--annealing_epoch", type=int, default=10)
-    parser.add_argument("--pretrain", type=str, default="DeCUR", choices=["DeCUR", "SimCLR", "BarlowTwins", "No_pretrain"],
-                        help="Backbone pretraining type (kept for compatibility; model selects encoder internally)")
-    # backbone for pretrain models
-    parser.add_argument("--backbone", type=str, default="resnet18", choices=["resnet18", "resnet50", "vits16", "mit_b2", "mit_b5"])
-    # args used by pretrain model definitions (to avoid attribute errors)
-    parser.add_argument("--rda", type=bool, default=False)
-    parser.add_argument('--projector', default='8192-8192-8192', type=str, metavar='MLP', help='projector MLP')
-    # channel & snr settings
-    parser.add_argument("--channel_type", type=str, default="awgn")
-    parser.add_argument("--channel_snr", type=float, default=20.0)
-    parser.add_argument("--snr_input_method", type=str, default="none", choices=["concat", "add", "mlp", "none"])
-    parser.add_argument("--snr_embed_dim", type=int, default=64)
-    parser.add_argument("--snr_min", type=float, default=0.0)
-    parser.add_argument("--snr_max", type=float, default=20.0)
-    parser.add_argument("--use_dynamic_snr", action="store_true", help="Enable dynamic SNR per batch (depth/rgb independently sampled in model)")
-    parser.add_argument("--model", type=str, default="tmc_channel_snr", choices=["tmc_channel_snr", "tmc_channel"], help="Model variant to train")
-    parser.add_argument("--label_fraction", type=float, default=1.0, help="Fraction of labeled training data to use (0,1]")
 
 
 def get_optimizer(model, args):
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
     return optimizer
 
 
@@ -88,13 +52,7 @@ def model_forward(i_epoch, model, args, ce_loss, batch):
     rgb, depth, tgt = batch['A'], batch['B'], batch['label']
 
     rgb, depth, tgt = rgb.cuda(), depth.cuda(), tgt.cuda()
-    # choose SNR mode: dynamic (None) or constant vector
-    snr = None if getattr(args, "use_dynamic_snr", False) else torch.full((rgb.shape[0],), float(args.channel_snr), dtype=torch.float32, device=rgb.device)
-    # 兼容两种模型：TMC_channel_snr 需要 snr 参数；TMC_channel 新增了 snr 可选参数
-    try:
-        depth_alpha, rgb_alpha, depth_rgb_alpha = model(rgb, depth, snr)
-    except TypeError:
-        depth_alpha, rgb_alpha, depth_rgb_alpha = model(rgb, depth)
+    depth_alpha, rgb_alpha, depth_rgb_alpha = model(rgb, depth)
 
     loss = ce_loss(tgt, depth_alpha, args.n_classes, i_epoch, args.annealing_epoch) + \
            ce_loss(tgt, rgb_alpha, args.n_classes, i_epoch, args.annealing_epoch) + \
@@ -150,21 +108,8 @@ def train(args):
     val_transforms.append(transforms.ToTensor())
     val_transforms.append(transforms.Normalize(mean=mean, std=std))
 
-    full_train = AlignedConcDataset(args, data_dir=os.path.join(args.data_path, 'train'), transform=transforms.Compose(train_transforms))
-    if getattr(args, 'label_fraction', 1.0) < 1.0:
-        frac = float(max(0.0, min(1.0, args.label_fraction)))
-        n = len(full_train)
-        keep = max(1, int(n * frac))
-        # deterministic subset with seed
-        g = torch.Generator()
-        g.manual_seed(int(args.seed))
-        indices = torch.randperm(n, generator=g).tolist()[:keep]
-        from torch.utils.data import Subset
-        train_set = Subset(full_train, indices)
-    else:
-        train_set = full_train
     train_loader = DataLoader(
-        train_set,
+        AlignedConcDataset(args, data_dir=os.path.join(args.data_path, 'train'), transform=transforms.Compose(train_transforms)),
         batch_size=args.batch_sz,
         shuffle=True,
         num_workers=args.n_workers)
@@ -173,49 +118,7 @@ def train(args):
             batch_size=args.batch_sz,
             shuffle=False,
             num_workers=args.n_workers)
-    # 支持 baseline 与 snr 版本选择
-    model_choice = getattr(args, 'model', 'tmc_channel_snr')
-    if model_choice == 'tmc_channel':
-        model = TMC_channel(args)
-    else:
-        model = TMC_channel_snr(args)
-
-    # load pretrain trunk if requested
-    if getattr(args, "pretrain", "DeCUR") != 'No_pretrain':
-        model_pt = None
-        checkpoint = None
-        try:
-            if args.pretrain == 'DeCUR':
-                model_pt = DeCUR(args)
-                checkpoint = torch.load('/home/hzhaobi/model_DeCUR_nopretrain.pth', map_location='cpu')
-            elif args.pretrain == 'SimCLR':
-                model_pt = SimCLR(args)
-                checkpoint = torch.load('/home/hzhaobi/model_SimCLR.pth', map_location='cpu')
-            elif args.pretrain == 'BarlowTwins':
-                model_pt = BarlowTwins(args)
-                checkpoint = torch.load('/home/hzhaobi/model_BarlowTwins_nopretrain.pth', map_location='cpu')
-        except Exception as e:
-            print(f"Warn: failed to load pretrain checkpoint for {args.pretrain}: {e}")
-            model_pt = None
-            checkpoint = None
-
-        if model_pt is not None and checkpoint is not None:
-            try:
-                # allow partial load (projector heads may differ)
-                res_pt = model_pt.load_state_dict(checkpoint, strict=False)
-                print(f"pretrain load: missing={len(res_pt.missing_keys)}, unexpected={len(res_pt.unexpected_keys)}")
-                # strip classification heads: keep trunk features
-                backbone1_trunk = nn.Sequential(*list(model_pt.backbone_1.children())[:-1])
-                backbone2_trunk = nn.Sequential(*list(model_pt.backbone_2.children())[:-1])
-                res_rgb = model.rgbenc.model.load_state_dict(backbone1_trunk.state_dict(), strict=False)
-                res_depth = model.depthenc.model.load_state_dict(backbone2_trunk.state_dict(), strict=False)
-                print(f"Loaded pretrained backbones from {args.pretrain} ({args.backbone}).")
-                print(f"rgbenc loaded: missing={len(res_rgb.missing_keys)}, unexpected={len(res_rgb.unexpected_keys)}")
-                print(f"depthenc loaded: missing={len(res_depth.missing_keys)}, unexpected={len(res_depth.unexpected_keys)}")
-            except Exception as e:
-                print(f"Warn: failed to transfer pretrained backbones: {e}")
-        else:
-            print(f"Warn: pretrain '{args.pretrain}' not applied (model_pt or checkpoint missing). Using random init.")
+    model = TMC(args)
     optimizer = get_optimizer(model, args)
     scheduler = get_scheduler(optimizer, args)
     logger = create_logger("%s/logfile.log" % args.savedir, args)
@@ -283,7 +186,9 @@ def train(args):
             args.savedir,
         )
 
-        # 不再执行早停，保证训练跑满 max_epochs
+        if n_no_improve >= args.patience:
+            logger.info("No improvement. Breaking out of loop.")
+            break
 
     load_checkpoint(model, os.path.join(args.savedir, "model_best.pt"))
     model.eval()

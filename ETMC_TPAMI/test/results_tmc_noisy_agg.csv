@@ -1,0 +1,17 @@
+model,pretrain,view,noise_power,mean_acc_pre,mean_acc_post,mean_acc
+tmc_channel,DeCUR,depth,1,,,0.3417
+tmc_channel,DeCUR,depth,10,,,0.1185
+tmc_channel,DeCUR,depth,100,,,0.1338
+tmc_channel,DeCUR,depth,1000,,,0.1331
+tmc_channel,DeCUR,rgb,1,,,0.4595
+tmc_channel,DeCUR,rgb,10,,,0.4518
+tmc_channel,DeCUR,rgb,100,,,0.4136
+tmc_channel,DeCUR,rgb,1000,,,0.4029
+tmc_channel_snr,DeCUR,depth,1,0.3713,0.3654,
+tmc_channel_snr,DeCUR,depth,10,0.1422,0.1361,
+tmc_channel_snr,DeCUR,depth,100,0.1584,0.1596,
+tmc_channel_snr,DeCUR,depth,1000,0.1709,0.1709,
+tmc_channel_snr,DeCUR,rgb,1,0.4444,0.4407,
+tmc_channel_snr,DeCUR,rgb,10,0.4064,0.4049,
+tmc_channel_snr,DeCUR,rgb,100,0.4116,0.4089,
+tmc_channel_snr,DeCUR,rgb,1000,0.3902,0.3887,

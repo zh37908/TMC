@@ -1,0 +1,7 @@
+view,noise_power,acc,savedir
+rgb,1,0.1606,/home/hzhaobi/Multired/savepath/TMC_channel_snr/nyud/none/snr10/pretrain_DeCUR/lr_1e-2/run2/train_TMC_channel_snr_none_DeCUR_snr10_lr1e-2_run2
+rgb,10,0.1590,/home/hzhaobi/Multired/savepath/TMC_channel_snr/nyud/none/snr10/pretrain_DeCUR/lr_1e-2/run2/train_TMC_channel_snr_none_DeCUR_snr10_lr1e-2_run2
+rgb,100,0.1529,/home/hzhaobi/Multired/savepath/TMC_channel_snr/nyud/none/snr10/pretrain_DeCUR/lr_1e-2/run2/train_TMC_channel_snr_none_DeCUR_snr10_lr1e-2_run2
+depth,1,0.1606,/home/hzhaobi/Multired/savepath/TMC_channel_snr/nyud/none/snr10/pretrain_DeCUR/lr_1e-2/run2/train_TMC_channel_snr_none_DeCUR_snr10_lr1e-2_run2
+depth,10,0.0398,/home/hzhaobi/Multired/savepath/TMC_channel_snr/nyud/none/snr10/pretrain_DeCUR/lr_1e-2/run2/train_TMC_channel_snr_none_DeCUR_snr10_lr1e-2_run2
+depth,100,0.0260,/home/hzhaobi/Multired/savepath/TMC_channel_snr/nyud/none/snr10/pretrain_DeCUR/lr_1e-2/run2/train_TMC_channel_snr_none_DeCUR_snr10_lr1e-2_run2

@@ -1,0 +1,9 @@
+Pretrain,Condition,20% Epoch,30% Epoch,40% Epoch,Best Acc
+DeCUR,Baseline,2,6,28,0.48318
+SimCLR,Baseline,3,8,-1,0.32569
+BarlowTwins,Baseline,1,7,59,0.41666499999999995
+No_pretrain,Baseline,7,12,-1,0.31345500000000004
+DeCUR,Uncertainty,1,2,4,0.56728
+SimCLR,Uncertainty,1,3,20,0.45565500000000003
+BarlowTwins,Uncertainty,1,2,19,0.54052
+No_pretrain,Uncertainty,1,8,55,0.45030499999999996

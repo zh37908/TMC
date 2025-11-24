@@ -1,31 +1,16 @@
 import argparse
 from tqdm import tqdm
-import torch
-import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import accuracy_score
-from models.TMC import TMC_channel_snr, TMC_channel, ce_loss
-from models.pretrain_models import DeCUR, SimCLR, BarlowTwins
+from models.TMC import TMC_channel_snr as TMC, ce_loss
 import torchvision.transforms as transforms
 from data.aligned_conc_dataset import AlignedConcDataset
 from utils.utils import *
 from utils.logger import create_logger
 import os
 from torch.utils.data import DataLoader
-
-"""
-TMC（Transferable Modal Consensus）与常规 softmax-cross-entropy 方法的核心区别：
-1. 证据输出而非概率：
-   TMC 网络最后一层不用 softmax，而是对 ReLU 后的 **evidence** 加 1 得到 Dirichlet 分布参数 α（见 models/TMC.py 中 `F.softplus(out)+1`）。α 越大表示模型越确信，α 越小表示不确定。
-2. 多模态 DS 融合：
-   分别对深度和 RGB 两路产生 α，然后利用 Dempster-Shafer 证据理论 `DS_Combin_two()` 将两路证据自适应融合，得到第三路 `depth_rgb_alpha`，从而显式建模模态一致性/冲突。
-3. 特殊损失函数 `ce_loss()`：
-   损失由两部分组成——(1) 证据驱动的交叉熵项 A；(2) 带有 KL 正则的惩罚项 B，随训练步数逐渐加权 (annealing)。该设计鼓励网络输出高置信度的正确类别，同时对不确定样本保留合适的分布。
-4. 三路协同优化：
-   训练时同时对 depth、rgb、fusion 三个 α 计算损失并反向传播（59-61 行），实现模态互补与一致性学习。
-5. 不确定性可解释：
-   由于输出的是 Dirichlet 参数，可直接计算期望、方差信息，用于下游不确定性估计，而普通 softmax 只给 point-estimate。
-"""
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 def get_args(parser):
@@ -36,13 +21,11 @@ def get_args(parser):
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=3)
     parser.add_argument("--hidden", nargs="*", type=int, default=[])
-    parser.add_argument("--channel_hidden", nargs="*", type=int, default=[512])
-    parser.add_argument("--channel_size", type=int, default=256)
     parser.add_argument("--hidden_sz", type=int, default=768)
     parser.add_argument("--img_embed_pool_type", type=str, default="avg", choices=["max", "avg"])
     parser.add_argument("--img_hidden_sz", type=int, default=512)
     parser.add_argument("--include_bn", type=int, default=True)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--lr_factor", type=float, default=0.3)
     parser.add_argument("--lr_patience", type=int, default=10)
     parser.add_argument("--max_epochs", type=int, default=500)
@@ -50,31 +33,26 @@ def get_args(parser):
     parser.add_argument("--name", type=str, default="ReleasedVersion")
     parser.add_argument("--num_image_embeds", type=int, default=1)
     parser.add_argument("--patience", type=int, default=20)
-    parser.add_argument("--savedir", type=str, default="./savepath/TMC/nyud/")
+    parser.add_argument("--savedir", type=str, default="./savepath/TMC/nyud/original/Adam/pretrain_resnet18/")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--n_classes", type=int, default=10)
     parser.add_argument("--annealing_epoch", type=int, default=10)
-    parser.add_argument("--pretrain", type=str, default="DeCUR", choices=["DeCUR", "SimCLR", "BarlowTwins", "No_pretrain"],
-                        help="Backbone pretraining type (kept for compatibility; model selects encoder internally)")
-    # backbone for pretrain models
-    parser.add_argument("--backbone", type=str, default="resnet18", choices=["resnet18", "resnet50", "vits16", "mit_b2", "mit_b5"])
-    # args used by pretrain model definitions (to avoid attribute errors)
-    parser.add_argument("--rda", type=bool, default=False)
-    parser.add_argument('--projector', default='8192-8192-8192', type=str, metavar='MLP', help='projector MLP')
-    # channel & snr settings
-    parser.add_argument("--channel_type", type=str, default="awgn")
-    parser.add_argument("--channel_snr", type=float, default=20.0)
-    parser.add_argument("--snr_input_method", type=str, default="none", choices=["concat", "add", "mlp", "none"])
-    parser.add_argument("--snr_embed_dim", type=int, default=64)
+    # SNR-related args for TMC_channel_snr (static SNR training)
+    parser.add_argument("--channel_snr", type=float, default=10.0, help="Static SNR (dB) during training/eval")
+    parser.add_argument("--snr_input_method", type=str, default="none", choices=["none", "mlp", "concat", "add"], help="How SNR is injected into model; 'none' disables SNR embedding")
+    # Channel module config required by TMC_channel_snr
+    parser.add_argument("--channel_type", type=str, default="awgn", choices=["none", "awgn", "rayleigh"], help="Channel type for feature perturbation")
+    parser.add_argument("--channel_hidden", nargs="*", type=int, default=[512], help="Hidden sizes for channel encoders")
+    parser.add_argument("--channel_size", type=int, default=256, help="Projected channel feature size")
+    # Optional SNR embed config/range (used if启用动态或非none融合)
     parser.add_argument("--snr_min", type=float, default=0.0)
     parser.add_argument("--snr_max", type=float, default=20.0)
-    parser.add_argument("--use_dynamic_snr", action="store_true", help="Enable dynamic SNR per batch (depth/rgb independently sampled in model)")
-    parser.add_argument("--model", type=str, default="tmc_channel_snr", choices=["tmc_channel_snr", "tmc_channel"], help="Model variant to train")
-    parser.add_argument("--label_fraction", type=float, default=1.0, help="Fraction of labeled training data to use (0,1]")
+    parser.add_argument("--snr_embed_dim", type=int, default=64)
 
 
 def get_optimizer(model, args):
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    # optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=1e-5)
     return optimizer
 
 
@@ -88,13 +66,9 @@ def model_forward(i_epoch, model, args, ce_loss, batch):
     rgb, depth, tgt = batch['A'], batch['B'], batch['label']
 
     rgb, depth, tgt = rgb.cuda(), depth.cuda(), tgt.cuda()
-    # choose SNR mode: dynamic (None) or constant vector
-    snr = None if getattr(args, "use_dynamic_snr", False) else torch.full((rgb.shape[0],), float(args.channel_snr), dtype=torch.float32, device=rgb.device)
-    # 兼容两种模型：TMC_channel_snr 需要 snr 参数；TMC_channel 新增了 snr 可选参数
-    try:
-        depth_alpha, rgb_alpha, depth_rgb_alpha = model(rgb, depth, snr)
-    except TypeError:
-        depth_alpha, rgb_alpha, depth_rgb_alpha = model(rgb, depth)
+    # static 10 dB (or args.channel_snr) vector for the whole batch
+    snr_in = torch.full((rgb.shape[0],), float(args.channel_snr), dtype=torch.float32, device=rgb.device)
+    depth_alpha, rgb_alpha, depth_rgb_alpha = model(rgb, depth, snr_in)
 
     loss = ce_loss(tgt, depth_alpha, args.n_classes, i_epoch, args.annealing_epoch) + \
            ce_loss(tgt, rgb_alpha, args.n_classes, i_epoch, args.annealing_epoch) + \
@@ -106,6 +80,7 @@ def model_eval(i_epoch, data, model, args, criterion):
     model.eval()
     with torch.no_grad():
         losses, depth_preds, rgb_preds, depthrgb_preds, tgts = [], [], [], [], []
+        fused_uncerts = []
         for batch in data:
             loss, depth_alpha, rgb_alpha, depth_rgb_alpha, tgt = model_forward(i_epoch, model, args, criterion, batch)
             losses.append(loss.item())
@@ -120,6 +95,11 @@ def model_eval(i_epoch, data, model, args, criterion):
             tgt = tgt.cpu().detach().numpy()
             tgts.append(tgt)
 
+            # collect fused uncertainty: K / sum(alpha)
+            K = int(getattr(args, 'n_classes', 10))
+            u = float(K) / torch.sum(depth_rgb_alpha, dim=1)
+            fused_uncerts.append(u.cpu())
+
     metrics = {"loss": np.mean(losses)}
 
     tgts = [l for sl in tgts for l in sl]
@@ -129,6 +109,7 @@ def model_eval(i_epoch, data, model, args, criterion):
     metrics["depth_acc"] = accuracy_score(tgts, depth_preds)
     metrics["rgb_acc"] = accuracy_score(tgts, rgb_preds)
     metrics["depthrgb_acc"] = accuracy_score(tgts, depthrgb_preds)
+    metrics["fused_uncert_all"] = torch.cat(fused_uncerts, dim=0).numpy() if len(fused_uncerts) > 0 else np.array([])
     return metrics
 
 
@@ -150,21 +131,8 @@ def train(args):
     val_transforms.append(transforms.ToTensor())
     val_transforms.append(transforms.Normalize(mean=mean, std=std))
 
-    full_train = AlignedConcDataset(args, data_dir=os.path.join(args.data_path, 'train'), transform=transforms.Compose(train_transforms))
-    if getattr(args, 'label_fraction', 1.0) < 1.0:
-        frac = float(max(0.0, min(1.0, args.label_fraction)))
-        n = len(full_train)
-        keep = max(1, int(n * frac))
-        # deterministic subset with seed
-        g = torch.Generator()
-        g.manual_seed(int(args.seed))
-        indices = torch.randperm(n, generator=g).tolist()[:keep]
-        from torch.utils.data import Subset
-        train_set = Subset(full_train, indices)
-    else:
-        train_set = full_train
     train_loader = DataLoader(
-        train_set,
+        AlignedConcDataset(args, data_dir=os.path.join(args.data_path, 'train'), transform=transforms.Compose(train_transforms)),
         batch_size=args.batch_sz,
         shuffle=True,
         num_workers=args.n_workers)
@@ -173,49 +141,7 @@ def train(args):
             batch_size=args.batch_sz,
             shuffle=False,
             num_workers=args.n_workers)
-    # 支持 baseline 与 snr 版本选择
-    model_choice = getattr(args, 'model', 'tmc_channel_snr')
-    if model_choice == 'tmc_channel':
-        model = TMC_channel(args)
-    else:
-        model = TMC_channel_snr(args)
-
-    # load pretrain trunk if requested
-    if getattr(args, "pretrain", "DeCUR") != 'No_pretrain':
-        model_pt = None
-        checkpoint = None
-        try:
-            if args.pretrain == 'DeCUR':
-                model_pt = DeCUR(args)
-                checkpoint = torch.load('/home/hzhaobi/model_DeCUR_nopretrain.pth', map_location='cpu')
-            elif args.pretrain == 'SimCLR':
-                model_pt = SimCLR(args)
-                checkpoint = torch.load('/home/hzhaobi/model_SimCLR.pth', map_location='cpu')
-            elif args.pretrain == 'BarlowTwins':
-                model_pt = BarlowTwins(args)
-                checkpoint = torch.load('/home/hzhaobi/model_BarlowTwins_nopretrain.pth', map_location='cpu')
-        except Exception as e:
-            print(f"Warn: failed to load pretrain checkpoint for {args.pretrain}: {e}")
-            model_pt = None
-            checkpoint = None
-
-        if model_pt is not None and checkpoint is not None:
-            try:
-                # allow partial load (projector heads may differ)
-                res_pt = model_pt.load_state_dict(checkpoint, strict=False)
-                print(f"pretrain load: missing={len(res_pt.missing_keys)}, unexpected={len(res_pt.unexpected_keys)}")
-                # strip classification heads: keep trunk features
-                backbone1_trunk = nn.Sequential(*list(model_pt.backbone_1.children())[:-1])
-                backbone2_trunk = nn.Sequential(*list(model_pt.backbone_2.children())[:-1])
-                res_rgb = model.rgbenc.model.load_state_dict(backbone1_trunk.state_dict(), strict=False)
-                res_depth = model.depthenc.model.load_state_dict(backbone2_trunk.state_dict(), strict=False)
-                print(f"Loaded pretrained backbones from {args.pretrain} ({args.backbone}).")
-                print(f"rgbenc loaded: missing={len(res_rgb.missing_keys)}, unexpected={len(res_rgb.unexpected_keys)}")
-                print(f"depthenc loaded: missing={len(res_depth.missing_keys)}, unexpected={len(res_depth.unexpected_keys)}")
-            except Exception as e:
-                print(f"Warn: failed to transfer pretrained backbones: {e}")
-        else:
-            print(f"Warn: pretrain '{args.pretrain}' not applied (model_pt or checkpoint missing). Using random init.")
+    model = TMC(args)
     optimizer = get_optimizer(model, args)
     scheduler = get_scheduler(optimizer, args)
     logger = create_logger("%s/logfile.log" % args.savedir, args)
@@ -224,14 +150,27 @@ def train(args):
     torch.save(args, os.path.join(args.savedir, "args.pt"))
     start_epoch, global_step, n_no_improve, best_metric = 0, 0, 0, -np.inf
 
-    if os.path.exists(os.path.join(args.savedir, "checkpoint.pt")):
-        checkpoint = torch.load(os.path.join(args.savedir, "checkpoint.pt"))
-        start_epoch = checkpoint["epoch"]
-        n_no_improve = checkpoint["n_no_improve"]
-        best_metric = checkpoint["best_metric"]
-        model.load_state_dict(checkpoint["state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer"])
-        scheduler.load_state_dict(checkpoint["scheduler"])
+    ckpt_path = os.path.join(args.savedir, "checkpoint.pt")
+    if os.path.exists(ckpt_path):
+        checkpoint = torch.load(ckpt_path)
+        try:
+            # Load weights only; do NOT resume optimizer/scheduler to avoid optimizer-type mismatch
+            model.load_state_dict(checkpoint["state_dict"], strict=False)
+            logger.info("Loaded model weights from checkpoint (strict=False); optimizer/scheduler not resumed.")
+        except Exception as e:
+            # filter by matching keys and shapes
+            model_sd = model.state_dict()
+            src_sd = checkpoint.get("state_dict", {})
+            filtered = {}
+            for k, v in src_sd.items():
+                if k in model_sd and hasattr(v, 'shape') and hasattr(model_sd[k], 'shape') and tuple(v.shape) == tuple(model_sd[k].shape):
+                    filtered[k] = v
+            if len(filtered) > 0:
+                model_sd.update(filtered)
+                model.load_state_dict(model_sd)
+                logger.warning(f"Partially loaded {len(filtered)} compatible tensors from checkpoint; optimizer/scheduler not resumed. Reason: {e}")
+            else:
+                logger.warning(f"Checkpoint incompatible with current model; starting fresh. Reason: {e}")
 
     for i_epoch in range(start_epoch, args.max_epochs):
         train_losses = []
@@ -262,6 +201,20 @@ def train(args):
         )
         tuning_metric = metrics["depthrgb_acc"]
 
+        # every 50 epochs: save train/test uncertainty density snapshots
+        if ((i_epoch + 1) % 10) == 0:
+            try:
+                # eval on train loader (model in eval mode inside model_eval)
+                metrics_train_snap = model_eval(np.inf, train_loader, model, args, ce_loss)
+                u_train = metrics_train_snap.get("fused_uncert_all", np.array([]))
+                u_test = metrics.get("fused_uncert_all", np.array([]))
+                plots_dir = os.path.join(args.savedir, "plots")
+                _save_uncert_density(u_train, os.path.join(plots_dir, f"uncert_epoch_{i_epoch+1:04d}_train.png"), f"Uncertainty density (train @epoch {i_epoch+1})")
+                _save_uncert_density(u_test, os.path.join(plots_dir, f"uncert_epoch_{i_epoch+1:04d}_test.png"), f"Uncertainty density (test @epoch {i_epoch+1})")
+                logger.info(f"Saved uncertainty density snapshots for epoch {i_epoch+1} -> {plots_dir}")
+            except Exception as e:
+                logger.info(f"Failed saving per-epoch uncertainty density (epoch {i_epoch+1}): {e}")
+
         scheduler.step(tuning_metric)
         is_improvement = tuning_metric > best_metric
         if is_improvement:
@@ -283,7 +236,9 @@ def train(args):
             args.savedir,
         )
 
-        # 不再执行早停，保证训练跑满 max_epochs
+        if n_no_improve >= args.patience:
+            logger.info("No improvement. Breaking out of loop.")
+            break
 
     load_checkpoint(model, os.path.join(args.savedir, "model_best.pt"))
     model.eval()
@@ -297,6 +252,53 @@ def train(args):
         )
     )
     log_metrics(f"Test", test_metrics, logger)
+
+    # plot and save fused uncertainty density for best checkpoint
+    try:
+        uncert = test_metrics.get("fused_uncert_all", np.array([]))
+        if uncert.size > 0:
+            out_dir = os.path.join(args.savedir, "plots")
+            os.makedirs(out_dir, exist_ok=True)
+            out_png = os.path.join(out_dir, "uncertainty_density_best.png")
+            plt.figure(figsize=(6, 4))
+            try:
+                sns.kdeplot(uncert, fill=True, color="#1f77b4", alpha=0.6)
+            except Exception:
+                plt.hist(uncert, bins=60, density=True, color="#1f77b4", alpha=0.6)
+            plt.xlabel("Fused uncertainty")
+            plt.ylabel("Density")
+            plt.title("Uncertainty density (best checkpoint)")
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(out_png, dpi=200)
+            plt.close()
+            logger.info(f"Saved uncertainty density figure: {out_png}")
+            # print brief stats
+            logger.info(
+                "Uncertainty stats (best): mean={:.6f}, std={:.6f}, min={:.6f}, max={:.6f}".format(
+                    float(np.mean(uncert)), float(np.std(uncert)), float(np.min(uncert)), float(np.max(uncert))
+                )
+            )
+    except Exception as e:
+        logger.info(f"Failed to save/print uncertainty density: {e}")
+
+
+def _save_uncert_density(uncert_arr, out_path: str, title: str):
+    if uncert_arr is None or (hasattr(uncert_arr, 'size') and uncert_arr.size == 0):
+        return
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    plt.figure(figsize=(6, 4))
+    try:
+        sns.kdeplot(uncert_arr, fill=True, color="#1f77b4", alpha=0.6)
+    except Exception:
+        plt.hist(uncert_arr, bins=60, density=True, color="#1f77b4", alpha=0.6)
+    plt.xlabel("Fused uncertainty")
+    plt.ylabel("Density")
+    plt.title(title)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=200)
+    plt.close()
 
 
 def cli_main():

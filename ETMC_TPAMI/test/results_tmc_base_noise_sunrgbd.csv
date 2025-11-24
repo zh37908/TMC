@@ -1,0 +1,7 @@
+view,noise_power,acc,savedir
+rgb,1,0.1687,/home/hzhaobi/Multired/savepath/TMC_base/sunrgbd/ReleasedVersion
+rgb,10,0.1638,/home/hzhaobi/Multired/savepath/TMC_base/sunrgbd/ReleasedVersion
+rgb,100,0.1719,/home/hzhaobi/Multired/savepath/TMC_base/sunrgbd/ReleasedVersion
+depth,1,0.1281,/home/hzhaobi/Multired/savepath/TMC_base/sunrgbd/ReleasedVersion
+depth,10,0.0901,/home/hzhaobi/Multired/savepath/TMC_base/sunrgbd/ReleasedVersion
+depth,100,0.0882,/home/hzhaobi/Multired/savepath/TMC_base/sunrgbd/ReleasedVersion

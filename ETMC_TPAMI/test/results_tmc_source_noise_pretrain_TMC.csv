@@ -1,0 +1,7 @@
+view,noise_power,acc,savedir
+rgb,1,0.3609,/home/hzhaobi/Multired/savepath/TMC/nyud/original/Adam/pretrain_TMC/ReleasedVersion
+rgb,10,0.3578,/home/hzhaobi/Multired/savepath/TMC/nyud/original/Adam/pretrain_TMC/ReleasedVersion
+rgb,100,0.3563,/home/hzhaobi/Multired/savepath/TMC/nyud/original/Adam/pretrain_TMC/ReleasedVersion
+depth,1,0.5398,/home/hzhaobi/Multired/savepath/TMC/nyud/original/Adam/pretrain_TMC/ReleasedVersion
+depth,10,0.5474,/home/hzhaobi/Multired/savepath/TMC/nyud/original/Adam/pretrain_TMC/ReleasedVersion
+depth,100,0.5535,/home/hzhaobi/Multired/savepath/TMC/nyud/original/Adam/pretrain_TMC/ReleasedVersion

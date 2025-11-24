@@ -1,0 +1,7 @@
+view,noise_power,acc,savedir
+rgb,1,0.2645,/home/hzhaobi/Multired/savepath/TMC_base/nyud/ReleasedVersion
+rgb,10,0.3991,/home/hzhaobi/Multired/savepath/TMC_base/nyud/ReleasedVersion
+rgb,100,0.4557,/home/hzhaobi/Multired/savepath/TMC_base/nyud/ReleasedVersion
+depth,1,0.1774,/home/hzhaobi/Multired/savepath/TMC_base/nyud/ReleasedVersion
+depth,10,0.1651,/home/hzhaobi/Multired/savepath/TMC_base/nyud/ReleasedVersion
+depth,100,0.1636,/home/hzhaobi/Multired/savepath/TMC_base/nyud/ReleasedVersion
